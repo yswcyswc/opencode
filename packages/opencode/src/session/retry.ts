@@ -1,7 +1,6 @@
 import type { NamedError } from "@opencode-ai/core/util/error"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Cause, Clock, Duration, Effect, Schedule } from "effect"
-import { MessageV2 } from "./message-v2"
 import { iife } from "@/util/iife"
 import { isRecord } from "@/util/record"
 
@@ -42,36 +41,29 @@ function cap(ms: number) {
 }
 
 export function delay(attempt: number, error?: SessionV1.APIError) {
-  if (error) {
-    const headers = error.data.responseHeaders
-    if (headers) {
-      const retryAfterMs = headers["retry-after-ms"]
-      if (retryAfterMs) {
-        const parsedMs = Number.parseFloat(retryAfterMs)
-        if (!Number.isNaN(parsedMs)) {
-          return cap(parsedMs)
-        }
-      }
+  const headers = error?.data.responseHeaders
+  if (!headers) return backoff(attempt, RETRY_MAX_DELAY_NO_HEADERS)
+  return retryAfter(headers) ?? backoff(attempt, RETRY_MAX_DELAY)
+}
 
-      const retryAfter = headers["retry-after"]
-      if (retryAfter) {
-        const parsedSeconds = Number.parseFloat(retryAfter)
-        if (!Number.isNaN(parsedSeconds)) {
-          // convert seconds to milliseconds
-          return cap(Math.ceil(parsedSeconds * 1000))
-        }
-        // Try parsing as HTTP date format
-        const parsed = Date.parse(retryAfter) - Date.now()
-        if (!Number.isNaN(parsed) && parsed > 0) {
-          return cap(Math.ceil(parsed))
-        }
-      }
+function backoff(attempt: number, maximum: number) {
+  return cap(Math.min(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1), maximum))
+}
 
-      return cap(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1))
-    }
+function retryAfter(headers: Record<string, string>) {
+  const milliseconds = headers["retry-after-ms"]
+  if (milliseconds) {
+    const parsed = Number.parseFloat(milliseconds)
+    if (!Number.isNaN(parsed)) return cap(parsed)
   }
 
-  return cap(Math.min(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1), RETRY_MAX_DELAY_NO_HEADERS))
+  const value = headers["retry-after"]
+  if (!value) return
+  const seconds = Number.parseFloat(value)
+  if (!Number.isNaN(seconds)) return cap(Math.ceil(seconds * 1000))
+
+  const date = Date.parse(value) - Date.now()
+  if (!Number.isNaN(date) && date > 0) return cap(Math.ceil(date))
 }
 
 export function retryable(error: Err, provider: string) {
