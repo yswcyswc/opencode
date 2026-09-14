@@ -1,0 +1,7 @@
+Display the following ASCII art of Scotty the Scottish Terrier to the user exactly as written:
+
+ / \__
+(    @\___
+ /         O
+/   (_____/
+/_____/   U
